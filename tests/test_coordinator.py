@@ -130,10 +130,10 @@ def test_waiting_for_latest_data_detects_missing_latest_day() -> None:
     )
 
 
-def test_latest_available_timestamp_avoids_today_validation_boundary(
+def test_latest_available_timestamp_is_yesterdays_final_slot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Newest sync window should not require an EG.D `to` value at today's midnight."""
+    """Newest sync window should end with yesterday's final 23:45 local slot."""
     coordinator = _build_coordinator()
     prague = ZoneInfo("Europe/Prague")
     monkeypatch.setattr(
@@ -147,7 +147,7 @@ def test_latest_available_timestamp_avoids_today_validation_boundary(
         5,
         22,
         21,
-        30,
+        45,
         tzinfo=timezone.utc,
     )
 

@@ -1132,14 +1132,14 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     def _get_latest_available_utc(self) -> datetime:
         """Return latest allowed EG.D quarter-hour timestamp.
 
-        EG.D allows querying only up to yesterday. Its `to` parameter behaves
-        like an exclusive boundary, so the newest safe local slot is 23:30; the
-        final 23:45 slot is repaired by the next day's revalidation.
+        EG.D allows querying only up to yesterday and the last slot is 23:45.
+        The request for it ends at 23:59:59 local (see `_format_egd_profile_to`),
+        which is still yesterday, so the whole day arrives on the first sync.
         """
         now_local = dt_util.now()
         latest_local = datetime.combine(
             now_local.date() - timedelta(days=1),
-            time(23, 30),
+            time(23, 45),
             tzinfo=now_local.tzinfo,
         )
         return latest_local.astimezone(timezone.utc)

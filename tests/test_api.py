@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from itertools import pairwise
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -20,8 +21,21 @@ def test_profile_to_parameter_uses_exclusive_interval_boundary() -> None:
         api._format_egd_profile_to(  # noqa: SLF001
             datetime(2026, 5, 20, 21, 45, tzinfo=timezone.utc)
         )
-        == "2026-05-20T22:00:00.000Z"
+        == "2026-05-20T21:59:59.000Z"
     )
+
+
+def test_profile_to_parameter_for_final_slot_stays_within_yesterday() -> None:
+    """The newest day's 23:45 slot must not need a `to` at local midnight."""
+    prague = ZoneInfo("Europe/Prague")
+    for last_slot in (
+        datetime(2026, 9, 23, 23, 45, tzinfo=prague),  # CEST
+        datetime(2026, 12, 23, 23, 45, tzinfo=prague),  # CET
+    ):
+        to_param = api._format_egd_profile_to(last_slot)  # noqa: SLF001
+        to_local = datetime.fromisoformat(to_param.replace("Z", "+00:00")).astimezone(prague)
+        assert to_local.date() == last_slot.date()
+        assert to_local > last_slot
 
 
 class _RecordingClient(EgdApiClient):

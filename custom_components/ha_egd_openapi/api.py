@@ -31,11 +31,13 @@ def _format_egd_timestamp(value: datetime) -> str:
 def _format_egd_profile_to(value: datetime) -> str:
     """Format EG.D profile upper bound.
 
-    The API treats the `to` parameter as an exclusive interval boundary. Add
-    one quarter-hour so callers can keep using `to_dt` as the last requested
-    measurement timestamp.
+    The API treats the `to` parameter as an exclusive interval boundary, so
+    `to_dt` itself is not returned. Point just before the next quarter-hour so
+    callers can keep using `to_dt` as the last requested measurement timestamp.
+    Stopping one second short matters for the newest day: its final 23:45 slot
+    would otherwise need a `to` of local midnight, which EG.D rejects as today.
     """
-    return _format_egd_timestamp(value + INTERVAL_LENGTH)
+    return _format_egd_timestamp(value + INTERVAL_LENGTH - timedelta(seconds=1))
 
 
 def get_history_start(reference: datetime | None = None) -> datetime:
