@@ -70,6 +70,25 @@ Typicky ji využijete, pokud chcete:
 - Zachování mezistavu mezi restarty Home Assistantu.
 - Servisní akce pro smazání importovaných statistik a reset lokálního checkpointu.
 
+## Ukázka v Energy dashboardu
+
+![Energy dashboard, sekce Electricity, s odběrem ze sítě z EG.D a jednotlivými spotřebiči](docs/energy-dashboard.png)
+
+Den 23. 9. 2026 v sekci **Energy → Electricity**, C1 elektroměr s profilem `DCQC`.
+Zdrojem odběru ze sítě je externí statistika `ha_egd_openapi:meter_<EAN>_import`
+(viz [Doporučené nastavení](#doporučené-nastavení)), takže každá hodina má svou
+skutečnou spotřebu, přestože EG.D data za celý den zveřejní až další den.
+Spotřebiče se chytrými zásuvkami se proti ní skládají v grafu **Individual devices
+detail**. Zbytek do hodnoty ze sítě je **Untracked consumption**.
+
+Poslední sloupec (23:00–24:00) ukazuje opravu posledního intervalu dne. Myčka
+začala ohřívat ve 23:45 a samotný interval `23:45` má 0,35 kWh. Původní integrace
+by ho při první synchronizaci nenačetla a hodina by ukazovala 0,06 kWh, tedy méně
+než samotná myčka.
+
+Náklady (29,05 CZK) nejsou součástí integrace. K externí statistice je připojená
+statistika celkových nákladů, kterou počítá samostatný skript podle tarifu HDO.
+
 ## Co integrace vytváří
 
 Po úspěšném nastavení vzniknou čtyři senzorové entity:
