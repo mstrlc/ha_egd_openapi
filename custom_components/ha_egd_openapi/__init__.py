@@ -57,6 +57,7 @@ def _build_statistic_ids_for_ean(ean: str) -> list[str]:
     return [
         f"{DOMAIN}:meter_{clean_ean}_import",
         f"{DOMAIN}:meter_{clean_ean}_export",
+        f"{DOMAIN}:meter_{clean_ean}_import_cost",
     ]
 
 

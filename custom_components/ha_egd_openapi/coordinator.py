@@ -42,6 +42,7 @@ from .const import (
     CONF_ENABLE_DIAGNOSTICS,
     CONF_EXPORT_PROFILE,
     CONF_IMPORT_PROFILE,
+    CONF_PRICE_ENTITY,
     CONF_REVALIDATE_DAYS,
     CONF_UPDATE_HOUR,
     CONF_UPDATE_MINUTE,
@@ -54,6 +55,7 @@ from .const import (
     STORE_KEY,
     STORE_VERSION,
 )
+from .cost import async_fetch_hourly_prices, fill_missing_prices
 from .statistics import async_import_external_statistics
 
 _LOGGER = logging.getLogger(__name__)
@@ -98,6 +100,9 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     _EXPORT_CACHE_COMPLETE_KEY = "export_hourly_deltas_complete"
     _IMPORT_ACCESSIBLE_START_KEY = "import_accessible_start"
     _EXPORT_ACCESSIBLE_START_KEY = "export_accessible_start"
+    _IMPORT_PRICES_KEY = "import_hourly_prices"
+    _IMPORT_COSTS_KEY = "import_hourly_costs"
+    _IMPORT_COST_PRICE_ENTITY_KEY = "import_cost_price_entity"
     _MANUAL_RESTORE_KEYS = (
         ATTR_LAST_API_SYNC_UTC,
         ATTR_LAST_UPDATE_UTC,
@@ -361,6 +366,19 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 import_from.isoformat() if import_from else None,
                 latest_available_utc.isoformat(),
                 self._persisted.get(ATTR_LAST_VALID_IMPORT_TS),
+            )
+
+        import_cost_stats = await self._async_refresh_import_cost(
+            latest_available_utc=latest_available_utc,
+        )
+        if import_cost_stats:
+            await async_import_external_statistics(
+                self.hass,
+                statistic_id=f"{DOMAIN}:meter_{ean}_import_cost",
+                name=f"{self.config_entry.title} Náklady na odběr",
+                source=DOMAIN,
+                rows=import_cost_stats,
+                currency=self.hass.config.currency,
             )
 
         if export_stats:
@@ -747,6 +765,89 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             },
         )
         return total, rows
+
+    async def _async_refresh_import_cost(
+        self, *, latest_available_utc: datetime
+    ) -> list[dict[str, Any]]:
+        """Price the cached import series and return changed cumulative cost rows.
+
+        Each hour's cost is its kWh times the price entity's time-weighted price
+        over that hour. Prices are cached per hour once known: every EG.D hour is
+        already closed, and the Recorder purges the state history they come from
+        long before revalidation stops touching the hour.
+        """
+        # Once options exist they are authoritative, so the entity can be cleared.
+        source = self.config_entry.options or self.config_entry.data
+        price_entity = source.get(CONF_PRICE_ENTITY)
+        if not price_entity:
+            return []
+
+        deltas = self._load_hourly_deltas(self._IMPORT_CACHE_KEY)
+        if not deltas:
+            return []
+
+        same_entity = self._persisted.get(self._IMPORT_COST_PRICE_ENTITY_KEY) == price_entity
+        # Prices of a previously selected entity must not leak into the new series.
+        prices = self._load_hourly_deltas(self._IMPORT_PRICES_KEY) if same_entity else {}
+        old_costs = self._load_hourly_deltas(self._IMPORT_COSTS_KEY) if same_entity else {}
+
+        missing = sorted(hour_start for hour_start in deltas if hour_start not in prices)
+        fallback: dict[datetime, float] = {}
+        if missing:
+            try:
+                fetched = await async_fetch_hourly_prices(self.hass, price_entity, missing)
+            except Exception as err:  # noqa: BLE001 - never fail the energy import
+                _LOGGER.warning("Cannot read prices of %s, cost not updated: %s", price_entity, err)
+                self._record_diagnostic_event(
+                    "warning",
+                    "cost_prices_failed",
+                    {"price_entity": price_entity, "reason": str(err)},
+                )
+                return []
+            prices.update(fetched)
+            fallback = fill_missing_prices(prices, missing)
+            if not prices:
+                _LOGGER.warning("No price of %s is known yet, cost not updated", price_entity)
+                return []
+            # History never reappears for a closed hour, so a fallback is final too.
+            prices.update(fallback)
+
+        costs = {
+            hour_start: round(kwh * prices[hour_start], 6)
+            for hour_start, kwh in deltas.items()
+        }
+        latest_hour = latest_available_utc.replace(minute=0, second=0, microsecond=0)
+        window_start = min(costs)
+        old_sums = self._build_cumulative_sum_map(old_costs, window_start, latest_hour)
+        new_sums = self._build_cumulative_sum_map(costs, window_start, latest_hour)
+        rows = [
+            {"start": hour_start, "state": sum_value, "sum": sum_value}
+            for hour_start, sum_value in new_sums.items()
+            if not self._numbers_equal(old_sums.get(hour_start), sum_value)
+        ]
+
+        self._persisted[self._IMPORT_COST_PRICE_ENTITY_KEY] = price_entity
+        self._persisted[self._IMPORT_PRICES_KEY] = self._serialize_hourly_deltas(prices)
+        self._persisted[self._IMPORT_COSTS_KEY] = self._serialize_hourly_deltas(costs)
+        self._record_diagnostic_event(
+            "debug",
+            "cost_merged",
+            {
+                "price_entity": price_entity,
+                "priced_hours": len(missing) - len(fallback),
+                "fallback_hours": len(fallback),
+                "changed_rows": len(rows),
+                "total_cost": round(sum(costs.values()), 6),
+            },
+        )
+        if fallback:
+            _LOGGER.info(
+                "Priced %s hour(s) without %s history by the nearest known price, first %s",
+                len(fallback),
+                price_entity,
+                min(fallback).isoformat(),
+            )
+        return rows
 
     def _get_persisted_total(self, *, persisted_total_key: str, cache_key: str) -> float:
         """Return stored total, falling back to the local hourly cache."""

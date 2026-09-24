@@ -14,7 +14,11 @@
           "update_hour": "Hodina denní synchronizace",
           "update_minute": "Minuta denní synchronizace",
           "revalidate_days": "Kolik dnů zpětně kontrolovat",
+          "price_entity": "Entita s cenou elektřiny (volitelné)",
           "enable_diagnostics": "Sbírat diagnostická data"
+        },
+        "data_description": {
+          "price_entity": "Cena za kWh včetně všech složek, např. podle tarifu HDO. Integrace z ní vytvoří statistiku celkových nákladů na odběr pro Energy dashboard. Ponechte prázdné, pokud náklady nechcete počítat."
         }
       }
     },
@@ -36,7 +40,11 @@
           "update_hour": "Hodina denní synchronizace",
           "update_minute": "Minuta denní synchronizace",
           "revalidate_days": "Kolik dnů zpětně kontrolovat",
+          "price_entity": "Entita s cenou elektřiny (volitelné)",
           "enable_diagnostics": "Sbírat diagnostická data"
+        },
+        "data_description": {
+          "price_entity": "Cena za kWh včetně všech složek, např. podle tarifu HDO. Integrace z ní vytvoří statistiku celkových nákladů na odběr pro Energy dashboard. Ponechte prázdné, pokud náklady nechcete počítat."
         }
       }
     }

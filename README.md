@@ -12,7 +12,7 @@
   <a href="https://github.com/mstrlc/ha_egd_openapi/actions/workflows/hassfest.yaml">
     <img src="https://github.com/mstrlc/ha_egd_openapi/actions/workflows/hassfest.yaml/badge.svg" alt="Hassfest validation">
   </a>
-  <img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version 1.1.0">
+  <img src="https://img.shields.io/badge/version-1.2.0-blue" alt="Version 1.2.0">
 </p>
 
 # EG.D OpenAPI pro Home Assistant
@@ -45,6 +45,8 @@ Oproti poslednímu vydání `CooLajz/ha_egd_openapi` (`v.1.0.1` z 11. 5. 2026) o
     elektroměru. S `total_increasing` Recorder chápe jakýkoli pokles (restart,
     reload integrace, přestavba cache) jako reset měřidla a celý součet započítá
     znovu, což v Energy dashboardu dělá velké falešné špičky.
+  - **Náklady na odběr podle entity s cenou** (volitelné), viz
+    [Náklady na odběr](#náklady-na-odběr).
 
 ## K čemu integrace slouží
 
@@ -67,6 +69,7 @@ Typicky ji využijete, pokud chcete:
 - Automatický denní import dat ve zvolený čas.
 - Průběžná zpětná kontrola posledních dnů, aby se opravila opožděně zveřejněná nebo změněná data.
 - Import dat do externích statistik Home Assistant Recorderu.
+- Volitelný výpočet nákladů na odběr podle entity s cenou elektřiny.
 - Zachování mezistavu mezi restarty Home Assistantu.
 - Servisní akce pro smazání importovaných statistik a reset lokálního checkpointu.
 
@@ -86,8 +89,8 @@ začala ohřívat ve 23:45 a samotný interval `23:45` má 0,35 kWh. Původní i
 by ho při první synchronizaci nenačetla a hodina by ukazovala 0,06 kWh, tedy méně
 než samotná myčka.
 
-Náklady (29,05 CZK) nejsou součástí integrace. K externí statistice je připojená
-statistika celkových nákladů, kterou počítá samostatný skript podle tarifu HDO.
+Náklady (29,05 CZK) počítá integrace ze spotřeby jednotlivých hodin a ceny podle
+tarifu HDO, viz [Náklady na odběr](#náklady-na-odběr).
 
 ## Co integrace vytváří
 
@@ -227,6 +230,8 @@ Integrace se přidává přes:
 - `Hodina denní synchronizace`: kdy se má provádět pravidelný denní import.
 - `Minuta denní synchronizace`: minuta pravidelné synchronizace.
 - `Kolik dnů zpětně kontrolovat`: počet dní, které se mají při každé synchronizaci znovu ověřit.
+- `Entita s cenou elektřiny` (volitelné): cena za kWh, ze které integrace počítá
+  náklady na odběr, viz [Náklady na odběr](#náklady-na-odběr).
 
 ### Výchozí hodnoty
 
@@ -246,7 +251,37 @@ Integrace se přidává přes:
   v okamžiku synchronizace (EG.D data zveřejňuje až další den), takže v dashboardu
   by den ukazoval nulu a následující ráno jednu velkou špičku.
 - K externí statistice nelze v Energy dashboardu připojit entitu s cenou, jen entitu
-  sledující celkové náklady.
+  sledující celkové náklady. Tu integrace vytvoří, pokud vyplníte entitu s cenou,
+  viz [Náklady na odběr](#náklady-na-odběr).
+
+## Náklady na odběr
+
+Pokud v nastavení vyplníte **Entitu s cenou elektřiny**, integrace kromě odběru
+zapisuje i externí statistiku celkových nákladů
+`ha_egd_openapi:meter_<EAN>_import_cost` v měně Home Assistantu.
+
+Jak ji připojit: **Nastavení → Dashboardy → Energie → Odběr ze sítě**, u zdroje
+`ha_egd_openapi:meter_<EAN>_import` zvolte **Použít entitu sledující celkové
+náklady** a vyberte statistiku `… Náklady na odběr`.
+
+Výpočet:
+
+- Náklad hodiny je spotřeba té hodiny × cena vážená časem, po který v hodině platila.
+  Přepnutí tarifu HDO uprostřed hodiny (např. v `:30`) se tak rozdělí přesně.
+- Cena se čte z historie entity v Recorderu. Stav `unknown`/`unavailable` ponechá
+  předchozí cenu. Hodiny, pro které historie stavů už není (Recorder ji po
+  `purge_keep_days` maže), se ocení hodinovým průměrem z dlouhodobých statistik
+  entity. Ty existují, pokud má entita `state_class: measurement`.
+- Cena každé hodiny se po prvním ocenění uloží. Když EG.D hodinu později opraví,
+  přepočítá se se stejnou cenou, i když historie ceny mezitím zmizela.
+- Hodiny, pro které cena není známá vůbec (typicky historie odběru starší než
+  samotná entita s cenou), se ocení nejbližší známou cenou.
+- Entita může být v `CZK/kWh`, `CZK/MWh` i `CZK/Wh`. Převod na kWh proběhne podle
+  její jednotky.
+- Změna entity s cenou přepočítá celou řadu novou entitou. Vymazání pole výpočet
+  nákladů zastaví, dosavadní statistika zůstane.
+
+Náklady na přetoky (výkup) integrace zatím nepočítá.
 
 ## Servisní akce
 
@@ -261,7 +296,7 @@ a `ean` omezí obnovu na jeden konfigurační záznam nebo EAN.
 
 Tato služba:
 
-- smaže importované statistiky odběru a dodávky,
+- smaže importované statistiky odběru, dodávky a nákladů,
 - odstraní uložené checkpointy integrace,
 - vynutí, aby se historie při další synchronizaci znovu sestavila.
 

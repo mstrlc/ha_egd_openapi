@@ -14,7 +14,11 @@
           "update_hour": "Daily sync hour",
           "update_minute": "Daily sync minute",
           "revalidate_days": "Days to revalidate",
+          "price_entity": "Electricity price entity (optional)",
           "enable_diagnostics": "Collect diagnostic data"
+        },
+        "data_description": {
+          "price_entity": "Price per kWh including all components, e.g. following the HDO tariff. The integration builds a total import cost statistic from it for the Energy Dashboard. Leave empty to skip cost tracking."
         }
       }
     },
@@ -36,7 +40,11 @@
           "update_hour": "Daily sync hour",
           "update_minute": "Daily sync minute",
           "revalidate_days": "Days to revalidate",
+          "price_entity": "Electricity price entity (optional)",
           "enable_diagnostics": "Collect diagnostic data"
+        },
+        "data_description": {
+          "price_entity": "Price per kWh including all components, e.g. following the HDO tariff. The integration builds a total import cost statistic from it for the Energy Dashboard. Leave empty to skip cost tracking."
         }
       }
     }

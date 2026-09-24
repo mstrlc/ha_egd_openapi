@@ -17,6 +17,7 @@ from .const import (
     CONF_ENABLE_DIAGNOSTICS,
     CONF_EXPORT_PROFILE,
     CONF_IMPORT_PROFILE,
+    CONF_PRICE_ENTITY,
     CONF_REVALIDATE_DAYS,
     CONF_UPDATE_HOUR,
     CONF_UPDATE_MINUTE,
@@ -41,6 +42,18 @@ EXPORT_OPTIONS = [
     {"value": "ISC1", "label": "ISC1 (A/B, kW)"},
     {"value": "DSQC", "label": "DSQC (C1, kWh)"},
 ]
+
+
+def _price_entity_field(default: str | None) -> dict[Any, Any]:
+    """Build the optional price entity field; it can be cleared again."""
+    return {
+        vol.Optional(
+            CONF_PRICE_ENTITY,
+            description={"suggested_value": default} if default else None,
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain=["sensor", "input_number", "number"])
+        ),
+    }
 
 
 def _build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
@@ -104,6 +117,7 @@ def _build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     step=1,
                 )
             ),
+            **_price_entity_field(defaults.get(CONF_PRICE_ENTITY)),
             vol.Required(
                 CONF_ENABLE_DIAGNOSTICS,
                 default=bool(
@@ -141,6 +155,9 @@ def _build_options_schema(config_entry: config_entries.ConfigEntry) -> vol.Schem
                 CONF_REVALIDATE_DAYS,
                 config_entry.data.get(CONF_REVALIDATE_DAYS, DEFAULT_REVALIDATE_DAYS),
             ),
+            CONF_PRICE_ENTITY: (config_entry.options or config_entry.data).get(
+                CONF_PRICE_ENTITY
+            ),
             CONF_ENABLE_DIAGNOSTICS: config_entry.options.get(
                 CONF_ENABLE_DIAGNOSTICS,
                 config_entry.data.get(
@@ -149,6 +166,12 @@ def _build_options_schema(config_entry: config_entries.ConfigEntry) -> vol.Schem
             ),
         }
     )
+
+
+def _price_entity_data(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return the price entity to store, omitted when the field was cleared."""
+    price_entity = user_input.get(CONF_PRICE_ENTITY)
+    return {CONF_PRICE_ENTITY: price_entity} if price_entity else {}
 
 
 async def _validate_input(hass, data: dict[str, Any]) -> None:
@@ -188,6 +211,7 @@ class EgdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
                         CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
                         CONF_ENABLE_DIAGNOSTICS: bool(user_input[CONF_ENABLE_DIAGNOSTICS]),
+                        **_price_entity_data(user_input),
                     },
                 )
 
@@ -216,6 +240,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                     CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
                     CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
                     CONF_ENABLE_DIAGNOSTICS: bool(user_input[CONF_ENABLE_DIAGNOSTICS]),
+                    **_price_entity_data(user_input),
                 },
             )
 
@@ -303,6 +328,11 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                             max=365,
                             mode=selector.NumberSelectorMode.BOX,
                             step=1,
+                        )
+                    ),
+                    **_price_entity_field(
+                        (self.config_entry.options or self.config_entry.data).get(
+                            CONF_PRICE_ENTITY
                         )
                     ),
                     vol.Required(
