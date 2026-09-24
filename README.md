@@ -24,12 +24,13 @@ Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D 
 Tento repozitář je fork [JanJakes/ha_egd_openapi](https://github.com/JanJakes/ha_egd_openapi),
 který vychází z původní integrace [CooLajz/ha_egd_openapi](https://github.com/CooLajz/ha_egd_openapi).
 
-Oproti poslednímu vydání původní integrace (`v.1.0.1`) obsahuje:
+Oproti poslednímu vydání `CooLajz/ha_egd_openapi` (`v.1.0.1` z 11. 5. 2026) obsahuje:
 
-- **z CooLajz `main`** (nevydané opravy): zahrnutí posledního čtvrthodinového intervalu
+- **z CooLajz `main`**, tedy opravy, které CooLajz zatím nevydal v žádném vydání
+  (jsou jen v jeho větvi `main`, v HACS je proto nedostanete): zahrnutí posledního čtvrthodinového intervalu
   do dotazů, oprava zamrzlých kumulativních součtů při chybějícím checkpointu,
   přesnější stav poslední úspěšné synchronizace;
-- **z JanJakes**: podpora C1 (chytrý elektroměr) profilů `DCQC`/`DSQC`, dotazy
+- **z JanJakes** (jeho fork nemá vlastní vydání): podpora C1 (chytrý elektroměr) profilů `DCQC`/`DSQC`, dotazy
   držené v rámci tříletého limitu EG.D, přísná kontrola stránkování (chybějící
   nebo duplicitní intervaly vedou k chybě místo tichého přijetí neúplných dat),
   nové načtení historie po změně profilu;
