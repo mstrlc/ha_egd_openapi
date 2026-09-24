@@ -54,7 +54,7 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         value_key="total_import_kwh",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL_INCREASING,
+        state_class=SensorStateClass.TOTAL,
         suggested_display_precision=3,
     ),
     EgdSensorDescription(
@@ -64,7 +64,7 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         value_key="total_export_kwh",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL_INCREASING,
+        state_class=SensorStateClass.TOTAL,
         suggested_display_precision=3,
     ),
     EgdSensorDescription(

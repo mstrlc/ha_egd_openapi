@@ -91,17 +91,22 @@ def test_total_import_sensor_keeps_energy_value_and_import_attributes() -> None:
     sensor = _build_sensor("total_import", _build_state())
 
     assert sensor.native_value == 123.456
-    assert sensor.entity_description.state_class is SensorStateClass.TOTAL_INCREASING
+    assert sensor.entity_description.state_class is SensorStateClass.TOTAL
     assert sensor.extra_state_attributes["last_import_status"] == "IU012"
     assert "last_export_status" not in sensor.extra_state_attributes
 
 
-def test_total_export_sensor_uses_total_increasing_state_class() -> None:
-    """Export energy sensor should be eligible for long-term statistics."""
+def test_total_export_sensor_uses_total_state_class() -> None:
+    """Export energy sensor should be eligible for long-term statistics.
+
+    The value is a self-computed cumulative total, not a hardware counter, so
+    `total` is used: `total_increasing` would read any transient drop (restart,
+    reload, rebuilt cache) as a meter reset and double-count the whole total.
+    """
     sensor = _build_sensor("total_export", _build_state())
 
     assert sensor.native_value == 78.9
-    assert sensor.entity_description.state_class is SensorStateClass.TOTAL_INCREASING
+    assert sensor.entity_description.state_class is SensorStateClass.TOTAL
 
 
 def test_next_sync_attempt_sensor_is_timestamp_and_exposes_reason() -> None:
