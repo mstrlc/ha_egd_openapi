@@ -6,18 +6,44 @@
   <a href="https://hacs.xyz/">
     <img src="https://img.shields.io/badge/HACS-Custom-orange.svg" alt="HACS Custom">
   </a>
-  <a href="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hacs.yaml">
-    <img src="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hacs.yaml/badge.svg" alt="HACS validation">
+  <a href="https://github.com/mstrlc/ha_egd_openapi/actions/workflows/hacs.yaml">
+    <img src="https://github.com/mstrlc/ha_egd_openapi/actions/workflows/hacs.yaml/badge.svg" alt="HACS validation">
   </a>
-  <a href="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml">
-    <img src="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml/badge.svg" alt="Hassfest validation">
+  <a href="https://github.com/mstrlc/ha_egd_openapi/actions/workflows/hassfest.yaml">
+    <img src="https://github.com/mstrlc/ha_egd_openapi/actions/workflows/hassfest.yaml/badge.svg" alt="Hassfest validation">
   </a>
-  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version 1.0.0">
+  <img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version 1.1.0">
 </p>
 
 # EG.D OpenAPI pro Home Assistant
 
 Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D OpenAPI** a importuje je do statistik Home Assistantu jako kumulativní hodnoty energie. Integrace je vhodná pro uživatele s chytrým měřením u EG.D, kteří chtějí mít spotřebu a dodávku elektřiny přímo v Energy dashboardu, statistikách a automatizacích.
+
+## O tomto forku
+
+Tento repozitář je fork [JanJakes/ha_egd_openapi](https://github.com/JanJakes/ha_egd_openapi),
+který vychází z původní integrace [CooLajz/ha_egd_openapi](https://github.com/CooLajz/ha_egd_openapi).
+
+Oproti poslednímu vydání původní integrace (`v.1.0.1`) obsahuje:
+
+- **z CooLajz `main`** (nevydané opravy): zahrnutí posledního čtvrthodinového intervalu
+  do dotazů, oprava zamrzlých kumulativních součtů při chybějícím checkpointu,
+  přesnější stav poslední úspěšné synchronizace;
+- **z JanJakes**: podpora C1 (chytrý elektroměr) profilů `DCQC`/`DSQC`, dotazy
+  držené v rámci tříletého limitu EG.D, přísná kontrola stránkování (chybějící
+  nebo duplicitní intervaly vedou k chybě místo tichého přijetí neúplných dat),
+  nové načtení historie po změně profilu;
+- **z tohoto forku**:
+  - **Poslední interval dne (`23:45`) hned při první synchronizaci.** EG.D bere
+    parametr `to` jako výlučnou hranici a zároveň odmítá `to` o půlnoci
+    („nejvýše ke včerejšímu dni“). Původní integrace proto končila v `23:30`
+    a interval `23:45` doplnila až zpětná kontrola další den. Tento fork posílá
+    `to` = `23:59:59` místního času, což EG.D přijme a interval vrátí.
+  - **Stavová třída `total` místo `total_increasing`** u entit `Celkový odběr`
+    a `Celková dodávka`. Jejich hodnota je součet počítaný integrací, ne čítač
+    elektroměru. S `total_increasing` Recorder chápe jakýkoli pokles (restart,
+    reload integrace, přestavba cache) jako reset měřidla a celý součet započítá
+    znovu, což v Energy dashboardu dělá velké falešné špičky.
 
 ## K čemu integrace slouží
 
@@ -115,7 +141,10 @@ synchronizace se nemusí posouvat.
 Je dobré počítat s několika vlastnostmi zdrojového API:
 
 - EG.D typicky zpřístupňuje data pouze do včerejška, ne do aktuálního dne.
-- Poslední dostupný interval dne bývá `23:45`.
+- Poslední dostupný interval dne bývá `23:45`. Časové značky označují začátek intervalu
+  (`23:45` = `23:45–24:00`).
+- Parametr `to` je výlučná hranice a nesmí sahat do dnešního dne, proto integrace
+  pro poslední interval posílá `to` = `23:59:59` místního času.
 - API má klouzavý limit přibližně 3 roky historie.
 - Některé profily mají navíc omezený začátek dostupnosti dat.
 - Delší časová období se musí stahovat po menších částech.
@@ -134,12 +163,27 @@ Pro použití potřebujete:
 
 ### Instalace přes HACS
 
-Pokud tento repozitář používáte přes HACS:
-
-1. Přidejte repozitář jako custom repository.
-2. Vyhledejte integraci `E.GD OpenAPI Integrace pro HomeAssistant`.
+1. V HACS otevřete **Custom repositories** a přidejte
+   `https://github.com/mstrlc/ha_egd_openapi` s kategorií **Integration**.
+2. Vyhledejte integraci `EG.D OpenAPI Integrace pro HomeAssistant`.
 3. Nainstalujte ji.
 4. Restartujte Home Assistant.
+
+### Přechod z původní integrace (CooLajz)
+
+Obě integrace používají stejnou doménu `ha_egd_openapi` a stejnou složku, takže
+stávající konfigurace, entity i statistiky zůstanou zachované:
+
+1. Přidejte tento repozitář do HACS (viz výše).
+2. V HACS **odeberte** `CooLajz/ha_egd_openapi`. Konfigurační záznam integrace
+   v Home Assistantu nemažte.
+3. Teprve potom nainstalujte tento fork. V opačném pořadí by odebrání původní
+   integrace smazalo soubory právě nainstalovaného forku.
+4. Restartujte Home Assistant.
+
+Pokud jste profil změnili na `DCQC`/`DSQC` v **Konfigurovat**, první synchronizace
+po přechodu to vyhodnotí jako změnu profilu a jednorázově znovu načte historii.
+Hodnoty se nezapočítají dvakrát, přepíšou se jen hodiny, které se skutečně liší.
 
 ### Ruční instalace
 
@@ -167,7 +211,7 @@ Integrace se přidává přes:
 ### Výchozí hodnoty
 
 - název: `EG.D Smart Meter`
-- čas denní synchronizace: `16:17`
+- čas denní synchronizace: `18:40`
 - zpětná kontrola: `31` dní
 - profil odběru: `ICQ2`
 - profil dodávky: `ISQ2`
@@ -176,13 +220,24 @@ Integrace se přidává přes:
 
 - Denní synchronizaci nastavte na čas, kdy už bývají v EG.D dostupná data za předchozí den.
 - Pokud EG.D někdy doplňuje nebo opravuje data se zpožděním, ponechte zpětnou kontrolu alespoň několik týdnů.
-- Pro Energy dashboard používejte entity vytvořené touto integrací, případně statistiky, které z nich Home Assistant odvodí.
+- Pro Energy dashboard doporučujeme jako zdroj odběru ze sítě použít externí statistiku
+  `ha_egd_openapi:meter_<EAN>_import`. Integrace ji zapisuje se správnými časy
+  jednotlivých hodin. Entita `Celkový odběr` naproti tomu dostane celý den najednou
+  v okamžiku synchronizace (EG.D data zveřejňuje až další den), takže v dashboardu
+  by den ukazoval nulu a následující ráno jednu velkou špičku.
+- K externí statistice nelze v Energy dashboardu připojit entitu s cenou, jen entitu
+  sledující celkové náklady.
 
 ## Servisní akce
 
-Integrace registruje službu:
+Integrace registruje dvě služby.
 
-- `ha_egd_openapi.egd_remove_statistics_entity`
+### `ha_egd_openapi.force_refresh`
+
+Spustí synchronizaci hned, mimo nastavený denní čas. Volitelné parametry `entry_id`
+a `ean` omezí obnovu na jeden konfigurační záznam nebo EAN.
+
+### `ha_egd_openapi.egd_remove_statistics_entity`
 
 Tato služba:
 
@@ -224,7 +279,12 @@ Možné příčiny:
 
 ### Chci nahrát historii znovu
 
-Použijte službu `ha_egd_openapi.egd_remove_statistics_entity` a následně nechte integraci znovu provést synchronizaci.
+Použijte službu `ha_egd_openapi.egd_remove_statistics_entity` a následně `ha_egd_openapi.force_refresh`.
+
+Služba maže jen externí statistiky integrace. Pokud máte v Energy dashboardu
+nebo jinde použitou i entitu `Celkový odběr`, smažte nejdřív její statistiky
+(Vývojářské nástroje → Statistiky). Jinak Recorder po přestavbě součtu zaznamená
+velký záporný skok.
 
 ## Pro koho je integrace vhodná
 
