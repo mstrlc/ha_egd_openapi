@@ -21,32 +21,15 @@ Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D 
 
 ## O tomto forku
 
-Tento repozitář je fork [JanJakes/ha_egd_openapi](https://github.com/JanJakes/ha_egd_openapi),
-který vychází z původní integrace [CooLajz/ha_egd_openapi](https://github.com/CooLajz/ha_egd_openapi).
+Fork [JanJakes/ha_egd_openapi](https://github.com/JanJakes/ha_egd_openapi), který
+vychází z [CooLajz/ha_egd_openapi](https://github.com/CooLajz/ha_egd_openapi).
+Oproti vydání CooLajz `v.1.0.1` přidává:
 
-Oproti poslednímu vydání `CooLajz/ha_egd_openapi` (`v.1.0.1` z 11. 5. 2026) obsahuje:
-
-- **z CooLajz `main`**, tedy opravy, které CooLajz zatím nevydal v žádném vydání
-  (jsou jen v jeho větvi `main`, v HACS je proto nedostanete): zahrnutí posledního čtvrthodinového intervalu
-  do dotazů, oprava zamrzlých kumulativních součtů při chybějícím checkpointu,
-  přesnější stav poslední úspěšné synchronizace;
-- **z JanJakes** (jeho fork nemá vlastní vydání): podpora C1 (chytrý elektroměr) profilů `DCQC`/`DSQC`, dotazy
-  držené v rámci tříletého limitu EG.D, přísná kontrola stránkování (chybějící
-  nebo duplicitní intervaly vedou k chybě místo tichého přijetí neúplných dat),
-  nové načtení historie po změně profilu;
-- **z tohoto forku**:
-  - **Poslední interval dne (`23:45`) hned při první synchronizaci.** EG.D bere
-    parametr `to` jako výlučnou hranici a zároveň odmítá `to` o půlnoci
-    („nejvýše ke včerejšímu dni“). Původní integrace proto končila v `23:30`
-    a interval `23:45` doplnila až zpětná kontrola další den. Tento fork posílá
-    `to` = `23:59:59` místního času, což EG.D přijme a interval vrátí.
-  - **Stavová třída `total` místo `total_increasing`** u entit `Celkový odběr`
-    a `Celková dodávka`. Jejich hodnota je součet počítaný integrací, ne čítač
-    elektroměru. S `total_increasing` Recorder chápe jakýkoli pokles (restart,
-    reload integrace, přestavba cache) jako reset měřidla a celý součet započítá
-    znovu, což v Energy dashboardu dělá velké falešné špičky.
-  - **Náklady na odběr podle entity s cenou** (volitelné), viz
-    [Náklady na odběr](#náklady-na-odběr).
+- opravy z větve `main` CooLajz, které zatím nejsou v žádném jeho vydání,
+- podporu chytrých elektroměrů C1 (profily `DCQC`/`DSQC`) a spolehlivější stahování dat (JanJakes),
+- načtení celého dne včetně posledního intervalu `23:45` hned při první synchronizaci,
+- stavovou třídu `total` u celkových součtů, takže restart ani reload nezpůsobí falešné špičky,
+- volitelný výpočet nákladů na odběr, viz [Náklady na odběr](#náklady-na-odběr).
 
 ## K čemu integrace slouží
 
@@ -75,22 +58,10 @@ Typicky ji využijete, pokud chcete:
 
 ## Ukázka v Energy dashboardu
 
-![Energy dashboard, sekce Electricity, s odběrem ze sítě z EG.D a jednotlivými spotřebiči](docs/energy-dashboard.png)
+![Energy dashboard s odběrem ze sítě z EG.D, náklady a jednotlivými spotřebiči](docs/energy-dashboard.png)
 
-Den 23. 9. 2026 v sekci **Energy → Electricity**, C1 elektroměr s profilem `DCQC`.
 Zdrojem odběru ze sítě je externí statistika `ha_egd_openapi:meter_<EAN>_import`
-(viz [Doporučené nastavení](#doporučené-nastavení)), takže každá hodina má svou
-skutečnou spotřebu, přestože EG.D data za celý den zveřejní až další den.
-Spotřebiče se chytrými zásuvkami se proti ní skládají v grafu **Individual devices
-detail**. Zbytek do hodnoty ze sítě je **Untracked consumption**.
-
-Poslední sloupec (23:00–24:00) ukazuje opravu posledního intervalu dne. Myčka
-začala ohřívat ve 23:45 a samotný interval `23:45` má 0,35 kWh. Původní integrace
-by ho při první synchronizaci nenačetla a hodina by ukazovala 0,06 kWh, tedy méně
-než samotná myčka.
-
-Náklady (29,05 CZK) počítá integrace ze spotřeby jednotlivých hodin a ceny podle
-tarifu HDO, viz [Náklady na odběr](#náklady-na-odběr).
+a náklady počítá integrace podle tarifu HDO.
 
 ## Co integrace vytváří
 
@@ -164,10 +135,7 @@ synchronizace se nemusí posouvat.
 Je dobré počítat s několika vlastnostmi zdrojového API:
 
 - EG.D typicky zpřístupňuje data pouze do včerejška, ne do aktuálního dne.
-- Poslední dostupný interval dne bývá `23:45`. Časové značky označují začátek intervalu
-  (`23:45` = `23:45–24:00`).
-- Parametr `to` je výlučná hranice a nesmí sahat do dnešního dne, proto integrace
-  pro poslední interval posílá `to` = `23:59:59` místního času.
+- Poslední dostupný interval dne bývá `23:45`.
 - API má klouzavý limit přibližně 3 roky historie.
 - Některé profily mají navíc omezený začátek dostupnosti dat.
 - Delší časová období se musí stahovat po menších částech.
@@ -194,19 +162,12 @@ Pro použití potřebujete:
 
 ### Přechod z původní integrace (CooLajz)
 
-Obě integrace používají stejnou doménu `ha_egd_openapi` a stejnou složku, takže
-stávající konfigurace, entity i statistiky zůstanou zachované:
+Konfigurace, entity i statistiky zůstanou zachované.
 
-1. Přidejte tento repozitář do HACS (viz výše).
-2. V HACS **odeberte** `CooLajz/ha_egd_openapi`. Konfigurační záznam integrace
-   v Home Assistantu nemažte.
-3. Teprve potom nainstalujte tento fork. V opačném pořadí by odebrání původní
-   integrace smazalo soubory právě nainstalovaného forku.
+1. Přidejte tento repozitář do HACS.
+2. V HACS odeberte `CooLajz/ha_egd_openapi`. Integraci v Home Assistantu nemažte.
+3. Nainstalujte tento fork. Pořadí je důležité, obě používají stejnou složku.
 4. Restartujte Home Assistant.
-
-Pokud jste profil změnili na `DCQC`/`DSQC` v **Konfigurovat**, první synchronizace
-po přechodu to vyhodnotí jako změnu profilu a jednorázově znovu načte historii.
-Hodnoty se nezapočítají dvakrát, přepíšou se jen hodiny, které se skutečně liší.
 
 ### Ruční instalace
 
@@ -230,8 +191,7 @@ Integrace se přidává přes:
 - `Hodina denní synchronizace`: kdy se má provádět pravidelný denní import.
 - `Minuta denní synchronizace`: minuta pravidelné synchronizace.
 - `Kolik dnů zpětně kontrolovat`: počet dní, které se mají při každé synchronizaci znovu ověřit.
-- `Entita s cenou elektřiny` (volitelné): cena za kWh, ze které integrace počítá
-  náklady na odběr, viz [Náklady na odběr](#náklady-na-odběr).
+- `Entita s cenou elektřiny` (volitelné): pro výpočet nákladů na odběr.
 
 ### Výchozí hodnoty
 
@@ -243,45 +203,23 @@ Integrace se přidává přes:
 
 ## Doporučené nastavení
 
-- Denní synchronizaci nastavte na čas, kdy už bývají v EG.D dostupná data za předchozí den.
+- Denní synchronizaci nastavte na čas, kdy už bývají v EG.D dostupná data za předchozí den (obvykle po 10:00).
 - Pokud EG.D někdy doplňuje nebo opravuje data se zpožděním, ponechte zpětnou kontrolu alespoň několik týdnů.
-- Pro Energy dashboard doporučujeme jako zdroj odběru ze sítě použít externí statistiku
-  `ha_egd_openapi:meter_<EAN>_import`. Integrace ji zapisuje se správnými časy
-  jednotlivých hodin. Entita `Celkový odběr` naproti tomu dostane celý den najednou
-  v okamžiku synchronizace (EG.D data zveřejňuje až další den), takže v dashboardu
-  by den ukazoval nulu a následující ráno jednu velkou špičku.
-- K externí statistice nelze v Energy dashboardu připojit entitu s cenou, jen entitu
-  sledující celkové náklady. Tu integrace vytvoří, pokud vyplníte entitu s cenou,
-  viz [Náklady na odběr](#náklady-na-odběr).
+- Jako zdroj odběru ze sítě v Energy dashboardu použijte externí statistiku
+  `ha_egd_openapi:meter_<EAN>_import`. Má správně rozdělené hodiny. Entita
+  `Celkový odběr` dostane celý den najednou až při synchronizaci.
 
 ## Náklady na odběr
 
-Pokud v nastavení vyplníte **Entitu s cenou elektřiny**, integrace kromě odběru
-zapisuje i externí statistiku celkových nákladů
-`ha_egd_openapi:meter_<EAN>_import_cost` v měně Home Assistantu.
+Po vyplnění **Entity s cenou elektřiny** (cena za kWh, MWh nebo Wh) integrace zapisuje
+statistiku nákladů `ha_egd_openapi:meter_<EAN>_import_cost` v měně Home Assistantu.
 
-Jak ji připojit: **Nastavení → Dashboardy → Energie → Odběr ze sítě**, u zdroje
-`ha_egd_openapi:meter_<EAN>_import` zvolte **Použít entitu sledující celkové
-náklady** a vyberte statistiku `… Náklady na odběr`.
+V Energy dashboardu ji připojíte u zdroje odběru ze sítě volbou **Použít entitu
+sledující celkové náklady**.
 
-Výpočet:
-
-- Náklad hodiny je spotřeba té hodiny × cena vážená časem, po který v hodině platila.
-  Přepnutí tarifu HDO uprostřed hodiny (např. v `:30`) se tak rozdělí přesně.
-- Cena se čte z historie entity v Recorderu. Stav `unknown`/`unavailable` ponechá
-  předchozí cenu. Hodiny, pro které historie stavů už není (Recorder ji po
-  `purge_keep_days` maže), se ocení hodinovým průměrem z dlouhodobých statistik
-  entity. Ty existují, pokud má entita `state_class: measurement`.
-- Cena každé hodiny se po prvním ocenění uloží. Když EG.D hodinu později opraví,
-  přepočítá se se stejnou cenou, i když historie ceny mezitím zmizela.
-- Hodiny, pro které cena není známá vůbec (typicky historie odběru starší než
-  samotná entita s cenou), se ocení nejbližší známou cenou.
-- Entita může být v `CZK/kWh`, `CZK/MWh` i `CZK/Wh`. Převod na kWh proběhne podle
-  její jednotky.
-- Změna entity s cenou přepočítá celou řadu novou entitou. Vymazání pole výpočet
-  nákladů zastaví, dosavadní statistika zůstane.
-
-Náklady na přetoky (výkup) integrace zatím nepočítá.
+Náklad každé hodiny je spotřeba × cena platná v té hodině, včetně přepnutí tarifu
+uprostřed hodiny. Ceny se ukládají, takže pozdější opravy dat od EG.D se ocení
+původní cenou. Náklady na přetoky se zatím nepočítají.
 
 ## Servisní akce
 
@@ -335,11 +273,6 @@ Možné příčiny:
 ### Chci nahrát historii znovu
 
 Použijte službu `ha_egd_openapi.egd_remove_statistics_entity` a následně `ha_egd_openapi.force_refresh`.
-
-Služba maže jen externí statistiky integrace. Pokud máte v Energy dashboardu
-nebo jinde použitou i entitu `Celkový odběr`, smažte nejdřív její statistiky
-(Vývojářské nástroje → Statistiky). Jinak Recorder po přestavbě součtu zaznamená
-velký záporný skok.
 
 ## Pro koho je integrace vhodná
 
