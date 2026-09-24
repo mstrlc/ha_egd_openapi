@@ -220,3 +220,18 @@ async def test_no_price_entity_writes_no_cost(monkeypatch) -> None:
     await coordinator._async_refresh_energy_state()
     assert _cost_calls(add_statistics) == []
     fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_new_price_entity_triggers_refresh_on_startup(monkeypatch) -> None:
+    coordinator, _, _ = _cost_coordinator(monkeypatch)
+    coordinator._persisted["next_sync_attempt_utc"] = "2099-01-01T00:00:00Z"
+    await coordinator._async_refresh_energy_state()
+    coordinator.data = coordinator._build_state_from_persisted()
+    coordinator._persisted["next_sync_attempt_utc"] = "2099-01-01T00:00:00Z"
+    assert not coordinator.should_refresh_on_startup()
+
+    coordinator.config_entry.options.update(
+        {"import_profile": "DCQC", "price_entity": "sensor.other_price"}
+    )
+    assert coordinator.should_refresh_on_startup()

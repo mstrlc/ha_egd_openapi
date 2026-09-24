@@ -170,6 +170,13 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             if profile != previous_profile:
                 return True
 
+        # A newly selected price entity should show its cost now, not at the next sync.
+        price_entity = self._get_price_entity()
+        if price_entity and price_entity != self._persisted.get(
+            self._IMPORT_COST_PRICE_ENTITY_KEY
+        ):
+            return True
+
         next_sync_attempt = self._parse_dt(self._persisted.get(ATTR_NEXT_SYNC_ATTEMPT_UTC))
         if next_sync_attempt is None:
             return True
@@ -766,6 +773,12 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         )
         return total, rows
 
+    def _get_price_entity(self) -> str | None:
+        """Return the configured price entity, if any."""
+        # Once options exist they are authoritative, so the entity can be cleared.
+        source = self.config_entry.options or self.config_entry.data
+        return source.get(CONF_PRICE_ENTITY) or None
+
     async def _async_refresh_import_cost(
         self, *, latest_available_utc: datetime
     ) -> list[dict[str, Any]]:
@@ -776,9 +789,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         already closed, and the Recorder purges the state history they come from
         long before revalidation stops touching the hour.
         """
-        # Once options exist they are authoritative, so the entity can be cleared.
-        source = self.config_entry.options or self.config_entry.data
-        price_entity = source.get(CONF_PRICE_ENTITY)
+        price_entity = self._get_price_entity()
         if not price_entity:
             return []
 
