@@ -16,6 +16,7 @@ CONF_EXPORT_PROFILE = "export_profile"
 CONF_NAME = "name"
 CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics"
 CONF_PRICE_ENTITY = "price_entity"
+CONF_TARIFF_ENTITY = "tariff_entity"
 
 DEFAULT_NAME = "EG.D Smart Meter"
 DEFAULT_UPDATE_HOUR = 18

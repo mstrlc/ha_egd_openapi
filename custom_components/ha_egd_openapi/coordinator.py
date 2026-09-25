@@ -44,6 +44,7 @@ from .const import (
     CONF_IMPORT_PROFILE,
     CONF_PRICE_ENTITY,
     CONF_REVALIDATE_DAYS,
+    CONF_TARIFF_ENTITY,
     CONF_UPDATE_HOUR,
     CONF_UPDATE_MINUTE,
     DEFAULT_ENABLE_DIAGNOSTICS,
@@ -55,7 +56,16 @@ from .const import (
     STORE_KEY,
     STORE_VERSION,
 )
-from .cost import async_fetch_hourly_prices, fill_missing_prices
+from .cost import (
+    SLOTS_PER_HOUR,
+    TARIFF_HIGH,
+    TARIFF_LOW,
+    async_fetch_slot_prices,
+    async_fetch_slot_tariffs,
+    fill_missing_prices,
+    fill_missing_tariffs,
+    slot_starts,
+)
 from .statistics import async_import_external_statistics
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,6 +77,15 @@ PROFILE_MIN_DATES: dict[str, date] = {
 
 # W is valid in the EG.D guide; IU012 is the legacy code.
 ALLOWED_STATUSES = {"IU012", "W"}
+
+# Import series derived from the quarter-hours, by statistic id suffix.
+IMPORT_SERIES_NAMES = {
+    "import_cost": "Náklady na odběr",
+    "import_nt": "Odběr NT",
+    "import_vt": "Odběr VT",
+    "import_nt_cost": "Náklady na odběr NT",
+    "import_vt_cost": "Náklady na odběr VT",
+}
 
 
 @dataclass(slots=True)
@@ -100,9 +119,21 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     _EXPORT_CACHE_COMPLETE_KEY = "export_hourly_deltas_complete"
     _IMPORT_ACCESSIBLE_START_KEY = "import_accessible_start"
     _EXPORT_ACCESSIBLE_START_KEY = "export_accessible_start"
+    _IMPORT_SLOTS_KEY = "import_slot_kwh"
+    # Hourly prices of v1.2; read once to seed the quarter-hour prices, then dropped.
     _IMPORT_PRICES_KEY = "import_hourly_prices"
-    _IMPORT_COSTS_KEY = "import_hourly_costs"
+    _IMPORT_SLOT_PRICES_KEY = "import_slot_prices"
     _IMPORT_COST_PRICE_ENTITY_KEY = "import_cost_price_entity"
+    _IMPORT_SLOT_TARIFFS_KEY = "import_slot_tariffs"
+    _IMPORT_TARIFF_ENTITY_KEY = "import_tariff_entity"
+    # Hourly values of each derived series, kept to write only changed rows.
+    _IMPORT_SERIES_KEYS = {
+        "import_cost": "import_hourly_costs",
+        "import_nt": "import_hourly_nt",
+        "import_vt": "import_hourly_vt",
+        "import_nt_cost": "import_hourly_costs_nt",
+        "import_vt_cost": "import_hourly_costs_vt",
+    }
     _MANUAL_RESTORE_KEYS = (
         ATTR_LAST_API_SYNC_UTC,
         ATTR_LAST_UPDATE_UTC,
@@ -170,12 +201,20 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             if profile != previous_profile:
                 return True
 
-        # A newly selected price entity should show its cost now, not at the next sync.
-        price_entity = self._get_price_entity()
-        if price_entity and price_entity != self._persisted.get(
-            self._IMPORT_COST_PRICE_ENTITY_KEY
+        # Quarter-hours missing from a v1.2 store are refetched right away.
+        if self._IMPORT_SLOTS_KEY not in self._persisted and self._persisted.get(
+            self._IMPORT_CACHE_KEY
         ):
             return True
+
+        # A newly selected price or tariff entity should show its series now,
+        # not at the next sync.
+        for entity_id, persisted_key in (
+            (self._get_price_entity(), self._IMPORT_COST_PRICE_ENTITY_KEY),
+            (self._get_tariff_entity(), self._IMPORT_TARIFF_ENTITY_KEY),
+        ):
+            if entity_id and entity_id != self._persisted.get(persisted_key):
+                return True
 
         next_sync_attempt = self._parse_dt(self._persisted.get(ATTR_NEXT_SYNC_ATTEMPT_UTC))
         if next_sync_attempt is None:
@@ -258,6 +297,11 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             accessible_start_key=self._IMPORT_ACCESSIBLE_START_KEY,
             last_valid_key=ATTR_LAST_VALID_IMPORT_TS,
             profile_key=CONF_IMPORT_PROFILE,
+            # Hours cached before quarter-hours were kept are fetched again once.
+            refetch_history=(
+                self._IMPORT_SLOTS_KEY not in self._persisted
+                and bool(self._persisted.get(self._IMPORT_CACHE_KEY))
+            ),
         )
         export_from = await self._determine_start_timestamp(
             ean=ean,
@@ -341,6 +385,12 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             accessible_start_key=self._IMPORT_ACCESSIBLE_START_KEY,
             hourly_deltas=import_hourly,
         )
+        if import_from is not None:
+            slot_kwh = self._load_hourly_values(self._IMPORT_SLOTS_KEY)
+            slot_kwh.update(
+                self._process_records_slots(records=import_records, profile=import_profile)
+            )
+            self._persisted[self._IMPORT_SLOTS_KEY] = self._serialize_hourly_values(slot_kwh)
         total_export, export_stats = self._merge_statistics(
             cache_key=self._EXPORT_CACHE_KEY,
             cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
@@ -375,17 +425,17 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 self._persisted.get(ATTR_LAST_VALID_IMPORT_TS),
             )
 
-        import_cost_stats = await self._async_refresh_import_cost(
+        import_series = await self._async_refresh_import_series(
             latest_available_utc=latest_available_utc,
         )
-        if import_cost_stats:
+        for suffix, rows in import_series.items():
             await async_import_external_statistics(
                 self.hass,
-                statistic_id=f"{DOMAIN}:meter_{ean}_import_cost",
-                name=f"{self.config_entry.title} Náklady na odběr",
+                statistic_id=f"{DOMAIN}:meter_{ean}_{suffix}",
+                name=f"{self.config_entry.title} {IMPORT_SERIES_NAMES[suffix]}",
                 source=DOMAIN,
-                rows=import_cost_stats,
-                currency=self.hass.config.currency,
+                rows=rows,
+                currency=self.hass.config.currency if suffix.endswith("_cost") else None,
             )
 
         if export_stats:
@@ -527,14 +577,9 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             # An absent hour is left untouched by the merge.
             hourly.setdefault(hour_start, 0.0)
 
-            if (
-                record.status not in ALLOWED_STATUSES
-                or record.value is None
-                or not isfinite(record.value)
-            ):
+            value_kwh = self._valid_record_kwh(record, profile)
+            if value_kwh is None:
                 continue
-
-            value_kwh = self._record_to_kwh(record.value, profile)
             hourly[hour_start] += value_kwh
             newest_valid_ts = record.timestamp
 
@@ -542,6 +587,35 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             {hour_start: round(value, 6) for hour_start, value in hourly.items()},
             {"last_valid_ts": newest_valid_ts, "last_status": last_status},
         )
+
+    def _process_records_slots(
+        self,
+        *,
+        records: list[IntervalRecord],
+        profile: str,
+    ) -> dict[datetime, list[float]]:
+        """Return the quarter-hour kWh of each hour, matching `_process_records_hourly`."""
+        slots: dict[datetime, list[float]] = {}
+        for record in records:
+            hour_start = record.timestamp.replace(minute=0, second=0, microsecond=0)
+            hour_slots = slots.setdefault(hour_start, [0.0] * SLOTS_PER_HOUR)
+            value_kwh = self._valid_record_kwh(record, profile)
+            if value_kwh is not None:
+                hour_slots[record.timestamp.minute // 15] += value_kwh
+        return {
+            hour_start: [round(value, 6) for value in hour_slots]
+            for hour_start, hour_slots in slots.items()
+        }
+
+    def _valid_record_kwh(self, record: IntervalRecord, profile: str) -> float | None:
+        """Return a finalized record's kWh, or None when it must not count."""
+        if (
+            record.status not in ALLOWED_STATUSES
+            or record.value is None
+            or not isfinite(record.value)
+        ):
+            return None
+        return self._record_to_kwh(record.value, profile)
 
     async def _determine_start_timestamp(
         self,
@@ -553,12 +627,14 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         accessible_start_key: str,
         last_valid_key: str,
         profile_key: str,
+        refetch_history: bool = False,
     ) -> datetime | None:
         """Determine where next fetch should start.
 
         Behavior:
         - first sync (or migration without local hourly cache): fetch full history
         - subsequent daily runs: revalidate a rolling window from the configured day offset
+        - `refetch_history`: fetch full history again, keeping the cache
         """
         hard_min = self._hard_min_for_profile(profile)
         cache_complete = bool(self._persisted.get(cache_complete_key))
@@ -566,8 +642,12 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             profile_key, self.config_entry.data.get(profile_key)
         )
         profile_changed = previous_profile is not None and previous_profile != profile
-        if profile_changed or not cache_complete:
-            if profile_changed or self._parse_dt(self._persisted.get(last_valid_key)) is None:
+        if profile_changed or refetch_history or not cache_complete:
+            if (
+                profile_changed
+                or refetch_history
+                or self._parse_dt(self._persisted.get(last_valid_key)) is None
+            ):
                 accessible_start = await self._find_first_accessible_timestamp(
                     ean=ean,
                     profile=profile,
@@ -779,34 +859,119 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         source = self.config_entry.options or self.config_entry.data
         return source.get(CONF_PRICE_ENTITY) or None
 
-    async def _async_refresh_import_cost(
-        self, *, latest_available_utc: datetime
-    ) -> list[dict[str, Any]]:
-        """Price the cached import series and return changed cumulative cost rows.
+    def _get_tariff_entity(self) -> str | None:
+        """Return the configured HDO tariff entity, if any."""
+        source = self.config_entry.options or self.config_entry.data
+        return source.get(CONF_TARIFF_ENTITY) or None
 
-        Each hour's cost is its kWh times the price entity's time-weighted price
-        over that hour. Prices are cached per hour once known: every EG.D hour is
-        already closed, and the Recorder purges the state history they come from
-        long before revalidation stops touching the hour.
+    async def _async_refresh_import_series(
+        self, *, latest_available_utc: datetime
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Build the import series derived from the quarter-hours.
+
+        With a price entity, each quarter-hour's kWh is priced at its own
+        time-weighted price (`import_cost`). With an HDO tariff entity, each
+        quarter-hour goes to the low (`import_nt`) or high (`import_vt`) tariff
+        whole, since HDO switches on quarter-hour boundaries; with both, each
+        tariff is also priced. Returns the changed cumulative rows per statistic
+        id suffix.
         """
         price_entity = self._get_price_entity()
-        if not price_entity:
-            return []
-
+        tariff_entity = self._get_tariff_entity()
         deltas = self._load_hourly_deltas(self._IMPORT_CACHE_KEY)
-        if not deltas:
-            return []
+        if not deltas or not (price_entity or tariff_entity):
+            return {}
 
-        same_entity = self._persisted.get(self._IMPORT_COST_PRICE_ENTITY_KEY) == price_entity
-        # Prices of a previously selected entity must not leak into the new series.
-        prices = self._load_hourly_deltas(self._IMPORT_PRICES_KEY) if same_entity else {}
-        old_costs = self._load_hourly_deltas(self._IMPORT_COSTS_KEY) if same_entity else {}
+        hours = sorted(deltas)
+        slot_kwh = self._load_slot_kwh(deltas)
+        # Values of a previously selected entity must not leak into the new series.
+        same_price = self._persisted.get(self._IMPORT_COST_PRICE_ENTITY_KEY) == price_entity
+        same_tariff = self._persisted.get(self._IMPORT_TARIFF_ENTITY_KEY) == tariff_entity
+        prices = (
+            await self._async_slot_prices(price_entity, hours, same_price)
+            if price_entity
+            else None
+        )
+        tariffs = (
+            await self._async_slot_tariffs(tariff_entity, hours, same_tariff)
+            if tariff_entity
+            else None
+        )
 
-        missing = sorted(hour_start for hour_start in deltas if hour_start not in prices)
-        fallback: dict[datetime, float] = {}
+        series: dict[str, dict[datetime, float]] = {}
+        if prices is not None:
+            series["import_cost"] = {
+                hour_start: sum(
+                    kwh * price for kwh, price in zip(slot_kwh[hour_start], prices[hour_start])
+                )
+                for hour_start in hours
+            }
+        if tariffs is not None:
+            for code, suffix in ((TARIFF_LOW, "nt"), (TARIFF_HIGH, "vt")):
+                series[f"import_{suffix}"] = {
+                    hour_start: sum(
+                        kwh
+                        for kwh, tariff in zip(slot_kwh[hour_start], tariffs[hour_start])
+                        if tariff == code
+                    )
+                    for hour_start in hours
+                }
+                if prices is not None:
+                    series[f"import_{suffix}_cost"] = {
+                        hour_start: sum(
+                            kwh * price
+                            for kwh, price, tariff in zip(
+                                slot_kwh[hour_start], prices[hour_start], tariffs[hour_start]
+                            )
+                            if tariff == code
+                        )
+                        for hour_start in hours
+                    }
+
+        latest_hour = latest_available_utc.replace(minute=0, second=0, microsecond=0)
+        changed: dict[str, list[dict[str, Any]]] = {}
+        for suffix, values in series.items():
+            reuse = (same_price or "cost" not in suffix) and (
+                same_tariff or suffix == "import_cost"
+            )
+            rows = self._diff_series(
+                self._IMPORT_SERIES_KEYS[suffix],
+                {hour_start: round(value, 6) for hour_start, value in values.items()},
+                reuse=reuse,
+                latest_hour=latest_hour,
+            )
+            if rows:
+                changed[suffix] = rows
+        self._record_diagnostic_event(
+            "debug",
+            "import_series_merged",
+            {
+                "price_entity": price_entity,
+                "tariff_entity": tariff_entity,
+                "changed_rows": {suffix: len(rows) for suffix, rows in changed.items()},
+                "totals": {
+                    suffix: round(sum(values.values()), 6)
+                    for suffix, values in series.items()
+                },
+            },
+        )
+        return changed
+
+    async def _async_slot_prices(
+        self, price_entity: str, hours: list[datetime], same_entity: bool
+    ) -> dict[datetime, list[float]] | None:
+        """Return quarter-hour prices of the given hours, or None when unknown.
+
+        Prices are cached once known: every EG.D hour is already closed, and the
+        Recorder purges the state history they come from long before
+        revalidation stops touching the hour.
+        """
+        prices = self._load_hourly_values(self._IMPORT_SLOT_PRICES_KEY) if same_entity else {}
+        missing = [hour_start for hour_start in hours if hour_start not in prices]
+        fallback: dict[datetime, list[float]] = {}
         if missing:
             try:
-                fetched = await async_fetch_hourly_prices(self.hass, price_entity, missing)
+                fetched = await async_fetch_slot_prices(self.hass, price_entity, missing)
             except Exception as err:  # noqa: BLE001 - never fail the energy import
                 _LOGGER.warning("Cannot read prices of %s, cost not updated: %s", price_entity, err)
                 self._record_diagnostic_event(
@@ -814,43 +979,24 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                     "cost_prices_failed",
                     {"price_entity": price_entity, "reason": str(err)},
                 )
-                return []
+                return None
             prices.update(fetched)
+            if same_entity:
+                # v1.2 priced whole hours; purged hours keep that price.
+                legacy = self._load_hourly_deltas(self._IMPORT_PRICES_KEY)
+                for hour_start in missing:
+                    if hour_start not in prices and hour_start in legacy:
+                        prices[hour_start] = [legacy[hour_start]] * SLOTS_PER_HOUR
             fallback = fill_missing_prices(prices, missing)
             if not prices:
                 _LOGGER.warning("No price of %s is known yet, cost not updated", price_entity)
-                return []
+                return None
             # History never reappears for a closed hour, so a fallback is final too.
             prices.update(fallback)
 
-        costs = {
-            hour_start: round(kwh * prices[hour_start], 6)
-            for hour_start, kwh in deltas.items()
-        }
-        latest_hour = latest_available_utc.replace(minute=0, second=0, microsecond=0)
-        window_start = min(costs)
-        old_sums = self._build_cumulative_sum_map(old_costs, window_start, latest_hour)
-        new_sums = self._build_cumulative_sum_map(costs, window_start, latest_hour)
-        rows = [
-            {"start": hour_start, "state": sum_value, "sum": sum_value}
-            for hour_start, sum_value in new_sums.items()
-            if not self._numbers_equal(old_sums.get(hour_start), sum_value)
-        ]
-
         self._persisted[self._IMPORT_COST_PRICE_ENTITY_KEY] = price_entity
-        self._persisted[self._IMPORT_PRICES_KEY] = self._serialize_hourly_deltas(prices)
-        self._persisted[self._IMPORT_COSTS_KEY] = self._serialize_hourly_deltas(costs)
-        self._record_diagnostic_event(
-            "debug",
-            "cost_merged",
-            {
-                "price_entity": price_entity,
-                "priced_hours": len(missing) - len(fallback),
-                "fallback_hours": len(fallback),
-                "changed_rows": len(rows),
-                "total_cost": round(sum(costs.values()), 6),
-            },
-        )
+        self._persisted[self._IMPORT_SLOT_PRICES_KEY] = self._serialize_hourly_values(prices)
+        self._persisted.pop(self._IMPORT_PRICES_KEY, None)
         if fallback:
             _LOGGER.info(
                 "Priced %s hour(s) without %s history by the nearest known price, first %s",
@@ -858,7 +1004,96 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 price_entity,
                 min(fallback).isoformat(),
             )
-        return rows
+        return prices
+
+    async def _async_slot_tariffs(
+        self, tariff_entity: str, hours: list[datetime], same_entity: bool
+    ) -> dict[datetime, str] | None:
+        """Return the tariff of each quarter-hour of the given hours, or None when unknown.
+
+        Each hour maps to four characters, `N` (low) or `V` (high). Like prices,
+        they are cached once known, because the HDO entity's state history is
+        purged; slots it never covered follow the weekly HDO schedule.
+        """
+        tariffs = self._load_hourly_values(self._IMPORT_SLOT_TARIFFS_KEY) if same_entity else {}
+        missing = [hour_start for hour_start in hours if hour_start not in tariffs]
+        if missing:
+            slots = [slot for hour_start in missing for slot in slot_starts(hour_start)]
+            try:
+                known = await async_fetch_slot_tariffs(self.hass, tariff_entity, slots)
+            except Exception as err:  # noqa: BLE001 - never fail the energy import
+                _LOGGER.warning(
+                    "Cannot read tariffs of %s, tariff split not updated: %s", tariff_entity, err
+                )
+                self._record_diagnostic_event(
+                    "warning",
+                    "tariffs_failed",
+                    {"tariff_entity": tariff_entity, "reason": str(err)},
+                )
+                return None
+            neighbours = {
+                slot: tariff
+                for hour_start, codes in tariffs.items()
+                for slot, tariff in zip(slot_starts(hour_start), codes)
+            }
+            neighbours.update(known)
+            unknown = [slot for slot in slots if slot not in known]
+            filled = fill_missing_tariffs(neighbours, unknown)
+            if not neighbours:
+                _LOGGER.warning(
+                    "No tariff of %s is known yet, tariff split not updated", tariff_entity
+                )
+                return None
+            known.update(filled)
+            for hour_start in missing:
+                tariffs[hour_start] = "".join(known[slot] for slot in slot_starts(hour_start))
+            if filled:
+                _LOGGER.info(
+                    "Assigned %s quarter-hour(s) without %s history by the weekly HDO schedule, first %s",
+                    len(filled),
+                    tariff_entity,
+                    min(filled).isoformat(),
+                )
+
+        self._persisted[self._IMPORT_TARIFF_ENTITY_KEY] = tariff_entity
+        self._persisted[self._IMPORT_SLOT_TARIFFS_KEY] = self._serialize_hourly_values(tariffs)
+        return tariffs
+
+    def _load_slot_kwh(self, deltas: dict[datetime, float]) -> dict[datetime, list[float]]:
+        """Return quarter-hour kWh of every cached hour.
+
+        Hours cached before quarter-hours were kept, and older than EG.D still
+        serves, are spread evenly, which prices them exactly as v1.2 did.
+        """
+        cached = self._load_hourly_values(self._IMPORT_SLOTS_KEY)
+        slots: dict[datetime, list[float]] = {}
+        for hour_start, kwh in deltas.items():
+            values = cached.get(hour_start)
+            if isinstance(values, list) and len(values) == SLOTS_PER_HOUR:
+                slots[hour_start] = [float(value) for value in values]
+            else:
+                slots[hour_start] = [kwh / SLOTS_PER_HOUR] * SLOTS_PER_HOUR
+        return slots
+
+    def _diff_series(
+        self,
+        cache_key: str,
+        values: dict[datetime, float],
+        *,
+        reuse: bool,
+        latest_hour: datetime,
+    ) -> list[dict[str, Any]]:
+        """Store an hourly series and return its changed cumulative rows."""
+        old = self._load_hourly_deltas(cache_key) if reuse else {}
+        window_start = min(values)
+        old_sums = self._build_cumulative_sum_map(old, window_start, latest_hour)
+        new_sums = self._build_cumulative_sum_map(values, window_start, latest_hour)
+        self._persisted[cache_key] = self._serialize_hourly_deltas(values)
+        return [
+            {"start": hour_start, "state": sum_value, "sum": sum_value}
+            for hour_start, sum_value in new_sums.items()
+            if not self._numbers_equal(old_sums.get(hour_start), sum_value)
+        ]
 
     def _get_persisted_total(self, *, persisted_total_key: str, cache_key: str) -> float:
         """Return stored total, falling back to the local hourly cache."""
@@ -1191,6 +1426,26 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 continue
             deltas[parsed] = round(float(value), 6)
         return deltas
+
+    def _load_hourly_values(self, cache_key: str) -> dict[datetime, Any]:
+        """Load cached per-hour values of any JSON type from persistent storage."""
+        raw = self._persisted.get(cache_key, {})
+        if not isinstance(raw, dict):
+            return {}
+        values: dict[datetime, Any] = {}
+        for timestamp, value in raw.items():
+            parsed = self._parse_dt(timestamp)
+            if parsed is not None:
+                values[parsed] = value
+        return values
+
+    def _serialize_hourly_values(self, values: dict[datetime, Any]) -> dict[str, Any]:
+        """Serialize cached per-hour values for Home Assistant storage."""
+        return {
+            self._iso(timestamp): value
+            for timestamp, value in sorted(values.items())
+            if self._iso(timestamp) is not None
+        }
 
     def _serialize_hourly_deltas(self, deltas: dict[datetime, float]) -> dict[str, float]:
         """Serialize cached hourly deltas for Home Assistant storage."""

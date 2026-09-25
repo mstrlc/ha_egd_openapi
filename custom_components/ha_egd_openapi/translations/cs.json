@@ -15,10 +15,12 @@
           "update_minute": "Minuta denní synchronizace",
           "revalidate_days": "Kolik dnů zpětně kontrolovat",
           "price_entity": "Entita s cenou elektřiny (volitelné)",
+          "tariff_entity": "Entita tarifu HDO (volitelné)",
           "enable_diagnostics": "Sbírat diagnostická data"
         },
         "data_description": {
-          "price_entity": "Cena za kWh včetně všech složek, např. podle tarifu HDO. Integrace z ní vytvoří statistiku celkových nákladů na odběr pro Energy dashboard. Ponechte prázdné, pokud náklady nechcete počítat."
+          "price_entity": "Cena za kWh včetně všech složek, např. podle tarifu HDO. Integrace z ní vytvoří statistiku celkových nákladů na odběr pro Energy dashboard. Ponechte prázdné, pokud náklady nechcete počítat.",
+          "tariff_entity": "Binární senzor HDO, zapnuto = nízký tarif (NT). Integrace podle něj rozdělí odběr po čtvrthodinách na NT a VT a vytvoří statistiky odběru (a s entitou s cenou i nákladů) pro každý tarif zvlášť, takže je lze v Energy dashboardu přidat jako dva zdroje ze sítě. Ponechte prázdné, pokud rozdělení nechcete."
         }
       }
     },
@@ -41,10 +43,12 @@
           "update_minute": "Minuta denní synchronizace",
           "revalidate_days": "Kolik dnů zpětně kontrolovat",
           "price_entity": "Entita s cenou elektřiny (volitelné)",
+          "tariff_entity": "Entita tarifu HDO (volitelné)",
           "enable_diagnostics": "Sbírat diagnostická data"
         },
         "data_description": {
-          "price_entity": "Cena za kWh včetně všech složek, např. podle tarifu HDO. Integrace z ní vytvoří statistiku celkových nákladů na odběr pro Energy dashboard. Ponechte prázdné, pokud náklady nechcete počítat."
+          "price_entity": "Cena za kWh včetně všech složek, např. podle tarifu HDO. Integrace z ní vytvoří statistiku celkových nákladů na odběr pro Energy dashboard. Ponechte prázdné, pokud náklady nechcete počítat.",
+          "tariff_entity": "Binární senzor HDO, zapnuto = nízký tarif (NT). Integrace podle něj rozdělí odběr po čtvrthodinách na NT a VT a vytvoří statistiky odběru (a s entitou s cenou i nákladů) pro každý tarif zvlášť, takže je lze v Energy dashboardu přidat jako dva zdroje ze sítě. Ponechte prázdné, pokud rozdělení nechcete."
         }
       }
     }

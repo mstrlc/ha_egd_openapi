@@ -29,7 +29,8 @@ Oproti vydání CooLajz `v.1.0.1` přidává:
 - podporu chytrých elektroměrů C1 (profily `DCQC`/`DSQC`) a spolehlivější stahování dat (JanJakes),
 - načtení celého dne včetně posledního intervalu `23:45` hned při první synchronizaci,
 - stavovou třídu `total` u celkových součtů, takže restart ani reload nezpůsobí falešné špičky,
-- volitelný výpočet nákladů na odběr, viz [Náklady na odběr](#náklady-na-odběr).
+- volitelný výpočet nákladů na odběr, viz [Náklady na odběr](#náklady-na-odběr),
+- volitelné rozdělení odběru na NT a VT podle HDO, viz [Rozdělení na NT a VT](#rozdělení-na-nt-a-vt).
 
 ## K čemu integrace slouží
 
@@ -53,6 +54,7 @@ Typicky ji využijete, pokud chcete:
 - Průběžná zpětná kontrola posledních dnů, aby se opravila opožděně zveřejněná nebo změněná data.
 - Import dat do externích statistik Home Assistant Recorderu.
 - Volitelný výpočet nákladů na odběr podle entity s cenou elektřiny.
+- Volitelné rozdělení odběru a nákladů na nízký (NT) a vysoký (VT) tarif podle HDO.
 - Zachování mezistavu mezi restarty Home Assistantu.
 - Servisní akce pro smazání importovaných statistik a reset lokálního checkpointu.
 
@@ -192,6 +194,7 @@ Integrace se přidává přes:
 - `Minuta denní synchronizace`: minuta pravidelné synchronizace.
 - `Kolik dnů zpětně kontrolovat`: počet dní, které se mají při každé synchronizaci znovu ověřit.
 - `Entita s cenou elektřiny` (volitelné): pro výpočet nákladů na odběr.
+- `Entita tarifu HDO` (volitelné): pro rozdělení odběru na NT a VT.
 
 ### Výchozí hodnoty
 
@@ -217,9 +220,39 @@ statistiku nákladů `ha_egd_openapi:meter_<EAN>_import_cost` v měně Home Assi
 V Energy dashboardu ji připojíte u zdroje odběru ze sítě volbou **Použít entitu
 sledující celkové náklady**.
 
-Náklad každé hodiny je spotřeba × cena platná v té hodině, včetně přepnutí tarifu
-uprostřed hodiny. Ceny se ukládají, takže pozdější opravy dat od EG.D se ocení
-původní cenou. Náklady na přetoky se zatím nepočítají.
+Každá čtvrthodina se ocení cenou, která v ní platila většinu času, takže přepnutí tarifu v :30
+se započítá přesně i při nerovnoměrné spotřebě během hodiny, a to i když senzor
+ceny přepne s minutovým zpožděním. Ceny se ukládají,
+takže pozdější opravy dat od EG.D se ocení původní cenou. Náklady na přetoky se
+zatím nepočítají.
+
+## Rozdělení na NT a VT
+
+Po vyplnění **Entity tarifu HDO** (binární senzor, zapnuto = nízký tarif, např.
+`binary_sensor.<…>_hdo_status` z integrace
+[EG.D HDO](https://github.com/Antrac1t/egddistribuce)) integrace zapisuje navíc:
+
+| Statistika | Obsah |
+|---|---|
+| `ha_egd_openapi:meter_<EAN>_import_nt` / `_import_vt` | odběr v NT / VT (kWh) |
+| `ha_egd_openapi:meter_<EAN>_import_nt_cost` / `_import_vt_cost` | náklady v NT / VT, jen s entitou s cenou |
+
+HDO přepíná na hranicích čtvrthodin, takže každá čtvrthodina patří celá jednomu
+tarifu (rozhoduje stav, který v ní trval déle, což pokryje i senzor, který přepne
+s minutovým zpožděním). Součet NT a VT se vždy rovná celkovému odběru.
+
+V Energy dashboardu přidejte místo jednoho zdroje odběru ze sítě dva: `…_import_nt`
+s náklady `…_import_nt_cost` a `…_import_vt` s náklady `…_import_vt_cost`. Graf pak
+odběr barevně rozdělí podle tarifu a přehled ukáže kWh i cenu každého zvlášť.
+
+Tarif každé čtvrthodiny se ukládá, protože Recorder historii stavů po čase maže.
+Čtvrthodiny, které historie HDO senzoru nepokrývá (např. před jeho přidáním),
+převezmou tarif ze stejného dne v týdnu a času podle nejbližšího známého týdne.
+Rozdělení proto nastavte co nejdřív, dokud historie HDO senzoru pokrývá celou
+stáhnutou historii odběru.
+
+Po aktualizaci z verze 1.2 integrace jednou znovu stáhne celou historii, protože
+dřív ukládala jen hodinové součty a čtvrthodiny zahazovala.
 
 ## Servisní akce
 

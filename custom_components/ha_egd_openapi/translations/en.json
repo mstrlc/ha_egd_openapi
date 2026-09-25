@@ -15,10 +15,12 @@
           "update_minute": "Daily sync minute",
           "revalidate_days": "Days to revalidate",
           "price_entity": "Electricity price entity (optional)",
+          "tariff_entity": "HDO tariff entity (optional)",
           "enable_diagnostics": "Collect diagnostic data"
         },
         "data_description": {
-          "price_entity": "Price per kWh including all components, e.g. following the HDO tariff. The integration builds a total import cost statistic from it for the Energy Dashboard. Leave empty to skip cost tracking."
+          "price_entity": "Price per kWh including all components, e.g. following the HDO tariff. The integration builds a total import cost statistic from it for the Energy Dashboard. Leave empty to skip cost tracking.",
+          "tariff_entity": "HDO binary sensor, on = low tariff (NT). The integration uses it to split import per quarter-hour into NT and VT and builds energy statistics (and cost statistics, with a price entity) for each tariff, so they can be added to the Energy Dashboard as two grid sources. Leave empty to skip the split."
         }
       }
     },
@@ -41,10 +43,12 @@
           "update_minute": "Daily sync minute",
           "revalidate_days": "Days to revalidate",
           "price_entity": "Electricity price entity (optional)",
+          "tariff_entity": "HDO tariff entity (optional)",
           "enable_diagnostics": "Collect diagnostic data"
         },
         "data_description": {
-          "price_entity": "Price per kWh including all components, e.g. following the HDO tariff. The integration builds a total import cost statistic from it for the Energy Dashboard. Leave empty to skip cost tracking."
+          "price_entity": "Price per kWh including all components, e.g. following the HDO tariff. The integration builds a total import cost statistic from it for the Energy Dashboard. Leave empty to skip cost tracking.",
+          "tariff_entity": "HDO binary sensor, on = low tariff (NT). The integration uses it to split import per quarter-hour into NT and VT and builds energy statistics (and cost statistics, with a price entity) for each tariff, so they can be added to the Energy Dashboard as two grid sources. Leave empty to skip the split."
         }
       }
     }

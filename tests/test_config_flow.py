@@ -80,3 +80,35 @@ def test_ab_defaults_are_unchanged() -> None:
     defaults = config_flow._build_user_schema()({})
     assert defaults["import_profile"] == "ICQ2"
     assert defaults["export_profile"] == "ISQ2"
+
+
+@pytest.mark.asyncio
+async def test_options_keep_and_clear_price_and_tariff_entities(monkeypatch, tmp_path) -> None:
+    entry = SimpleNamespace(
+        options={
+            "import_profile": "DCQC",
+            "export_profile": "DSQC",
+            "price_entity": "sensor.price",
+            "tariff_entity": "binary_sensor.hdo",
+        },
+        data={"import_profile": "ICQ2", "export_profile": "ISQ2"},
+    )
+    hass = HomeAssistant(str(tmp_path))
+    monkeypatch.setattr(frame._hass, "hass", hass)
+    hass.config_entries = SimpleNamespace(async_get_known_entry=lambda entry_id: entry)
+    flow = config_flow.EgdConfigFlow.async_get_options_flow(entry)
+    flow.hass = hass
+    flow.handler = "fake-entry-id"
+    schema = (await flow.async_step_init())["data_schema"]
+    suggested = {
+        str(key): key.description["suggested_value"]
+        for key in schema.schema
+        if getattr(key, "description", None)
+    }
+    assert suggested == {"price_entity": "sensor.price", "tariff_entity": "binary_sensor.hdo"}
+
+    kept = await flow.async_step_init(schema({**suggested}))
+    assert kept["data"]["tariff_entity"] == "binary_sensor.hdo"
+    cleared = await flow.async_step_init(schema({"price_entity": "sensor.price"}))
+    assert "tariff_entity" not in cleared["data"]
+    assert cleared["data"]["price_entity"] == "sensor.price"

@@ -19,6 +19,7 @@ from .const import (
     CONF_IMPORT_PROFILE,
     CONF_PRICE_ENTITY,
     CONF_REVALIDATE_DAYS,
+    CONF_TARIFF_ENTITY,
     CONF_UPDATE_HOUR,
     CONF_UPDATE_MINUTE,
     DEFAULT_ENABLE_DIAGNOSTICS,
@@ -44,15 +45,20 @@ EXPORT_OPTIONS = [
 ]
 
 
-def _price_entity_field(default: str | None) -> dict[Any, Any]:
-    """Build the optional price entity field; it can be cleared again."""
+_ENTITY_FIELD_DOMAINS = {
+    CONF_PRICE_ENTITY: ["sensor", "input_number", "number"],
+    CONF_TARIFF_ENTITY: ["binary_sensor", "input_boolean"],
+}
+
+
+def _entity_fields(defaults: dict[str, Any]) -> dict[Any, Any]:
+    """Build the optional price and tariff entity fields; they can be cleared again."""
     return {
         vol.Optional(
-            CONF_PRICE_ENTITY,
-            description={"suggested_value": default} if default else None,
-        ): selector.EntitySelector(
-            selector.EntitySelectorConfig(domain=["sensor", "input_number", "number"])
-        ),
+            key,
+            description={"suggested_value": defaults[key]} if defaults.get(key) else None,
+        ): selector.EntitySelector(selector.EntitySelectorConfig(domain=domains))
+        for key, domains in _ENTITY_FIELD_DOMAINS.items()
     }
 
 
@@ -117,7 +123,7 @@ def _build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     step=1,
                 )
             ),
-            **_price_entity_field(defaults.get(CONF_PRICE_ENTITY)),
+            **_entity_fields(defaults),
             vol.Required(
                 CONF_ENABLE_DIAGNOSTICS,
                 default=bool(
@@ -158,6 +164,9 @@ def _build_options_schema(config_entry: config_entries.ConfigEntry) -> vol.Schem
             CONF_PRICE_ENTITY: (config_entry.options or config_entry.data).get(
                 CONF_PRICE_ENTITY
             ),
+            CONF_TARIFF_ENTITY: (config_entry.options or config_entry.data).get(
+                CONF_TARIFF_ENTITY
+            ),
             CONF_ENABLE_DIAGNOSTICS: config_entry.options.get(
                 CONF_ENABLE_DIAGNOSTICS,
                 config_entry.data.get(
@@ -168,10 +177,9 @@ def _build_options_schema(config_entry: config_entries.ConfigEntry) -> vol.Schem
     )
 
 
-def _price_entity_data(user_input: dict[str, Any]) -> dict[str, str]:
-    """Return the price entity to store, omitted when the field was cleared."""
-    price_entity = user_input.get(CONF_PRICE_ENTITY)
-    return {CONF_PRICE_ENTITY: price_entity} if price_entity else {}
+def _entity_data(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return the price and tariff entities to store, omitting cleared fields."""
+    return {key: user_input[key] for key in _ENTITY_FIELD_DOMAINS if user_input.get(key)}
 
 
 async def _validate_input(hass, data: dict[str, Any]) -> None:
@@ -211,7 +219,7 @@ class EgdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
                         CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
                         CONF_ENABLE_DIAGNOSTICS: bool(user_input[CONF_ENABLE_DIAGNOSTICS]),
-                        **_price_entity_data(user_input),
+                        **_entity_data(user_input),
                     },
                 )
 
@@ -240,7 +248,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                     CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
                     CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
                     CONF_ENABLE_DIAGNOSTICS: bool(user_input[CONF_ENABLE_DIAGNOSTICS]),
-                    **_price_entity_data(user_input),
+                    **_entity_data(user_input),
                 },
             )
 
@@ -330,11 +338,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                             step=1,
                         )
                     ),
-                    **_price_entity_field(
-                        (self.config_entry.options or self.config_entry.data).get(
-                            CONF_PRICE_ENTITY
-                        )
-                    ),
+                    **_entity_fields(self.config_entry.options or self.config_entry.data),
                     vol.Required(
                         CONF_ENABLE_DIAGNOSTICS,
                         default=bool(

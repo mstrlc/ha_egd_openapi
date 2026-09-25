@@ -28,7 +28,7 @@ from .const import (
     STORE_KEY,
     STORE_VERSION,
 )
-from .coordinator import EgdDataUpdateCoordinator
+from .coordinator import IMPORT_SERIES_NAMES, EgdDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def _build_statistic_ids_for_ean(ean: str) -> list[str]:
     return [
         f"{DOMAIN}:meter_{clean_ean}_import",
         f"{DOMAIN}:meter_{clean_ean}_export",
-        f"{DOMAIN}:meter_{clean_ean}_import_cost",
+        *(f"{DOMAIN}:meter_{clean_ean}_{suffix}" for suffix in IMPORT_SERIES_NAMES),
     ]
 
 
